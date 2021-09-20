@@ -1,0 +1,14 @@
+[
+    {
+        "ParameterKey": "ParentAmi",
+        "ParameterValue": "arn:aws:imagebuilder:us-east-1:aws:image/amazon-linux-2-arm64/x.x.x"
+    },
+    {
+        "ParameterKey": "CicdInfraStackName",
+        "ParameterValue": "infra-ami"
+    },
+    {
+        "ParameterKey": "SubnetName",
+        "ParameterValue": "CicdPrivateSubnet"
+    }
+]

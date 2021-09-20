@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: EC2 Image Builder Recipe
+# Deployment:
+# aws cloudformation create-stack --stack-name ec2-ami-builder-recipe --template-body file://ec2-ami-builder-recipe.yml 
+
+# UPDATE:
+# aws cloudformation update-stack --stack-name ec2-ami-builder-recipe --template-body file://ec2-ami-builder-recipe.yml 
+
+# DELETE
+# aws cloudformation delete-stack --stack-name ec2-ami-builder-recipe
+
+Parameters:
+  RecipeVersionPrefix:
+    Description: 'Needs to be 1.0.'
+    Type: String 
+    Default: '1.0.'
+  RecipeVersion:
+    Description: 'Version of the component in the format of one digit. the version is: 1.0.{RecipeVersion}'
+    Type: Number 
+    Default: 3
+  KmsStackName:
+    Description: Stack name that creates the KMS key 
+    Type: String 
+    Default: 'kms-ami'
+  KeyArnExportName: 
+    Description: Output name of the key arn
+    Type: String 
+    Default: YourCustomerPreProdKmsKeyArn
+Resources:
+  # Recipe
+  ImageRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties: 
+      Components: 
+        - ComponentArn: !GetAtt ImageBuilderComponent.Arn 
+      Description: Image recipe for the AMI
+      Name: AmiRecipe
+      ParentImage: "ami-02dc2e45afd1dc0db"
+      Tags: 
+        Name : AmiRecipe
+      Version: !Sub "${RecipeVersionPrefix}${RecipeVersion}"
+      WorkingDirectory: "/tmp"
+
+  # Component - with CloudWatchAgent 
+  ImageBuilderComponent:  
+    Type: AWS::ImageBuilder::Component
+    Properties: 
+      ChangeDescription: "initial version"
+      Data: |
+        name: HelloWorldTestingLinuxDoc - InlineData
+        description: This is hello world testing doc
+        schemaVersion: 1.0
+        phases:
+          - name: build
+            steps:
+              - name: LinuxUpdateStep
+                action: UpdateOS
+                onFailure: Abort
+                maxAttempts: 2
+              - name: DummySshKeyStep
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - echo "Creating dummy SSH key ..."
+                    - touch /tmp/ansible_ssh_key.pub
+                    - echo "... SSH Key created"
+              - name: CloudWatchAgentStep
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - echo "Trying to install CloudWatch agent ..."
+                    - yum install amazon-cloudwatch-agent-linux -y
+                    - echo "... CloudWatch agent installed"
+              - name: CodeDeployStepStep
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - echo "Trying to install CodeDeploy agent ..."
+                    - yum install codedeploy-agent -y
+                    - echo "... CodeDeploy agent installed"
+          - name: validate
+            steps:
+              - name: RebootStep
+                action: Reboot
+                onFailure: Abort
+                maxAttempts: 2
+                inputs:
+                  delaySeconds: 5
+              - name: ExitStep
+                action: ExecuteBash
+                inputs:
+                  commands:
+                    - echo "... Validation performed"
+      Description: Image builder component
+      KmsKeyId: 
+        Fn::ImportValue: !Sub "${KmsStackName}-${KeyArnExportName}" 
+      Name: ImageBuilderComponent
+      Platform: Linux
+      SupportedOsVersions: 
+        - 'Amazon Linux 2'
+      Tags: 
+        Name : ImageBuilderComponent
+      Version: !Sub "${RecipeVersionPrefix}${RecipeVersion}"
+
+  # SSM Output
+  SSMParameterImageReceipeArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: Latest component version to be used by the image builder pipeline
+      Name: !Sub "/cicd/ami/imagerecipe/version/${RecipeVersion}"
+      Type: String
+      Value: !GetAtt ImageRecipe.Arn
+
+
+Outputs:
+  ImageBuilderComponent:
+    Value: !Ref ImageBuilderComponent
+    Export: 
+      Name: !Sub ${AWS::StackName}-ImageBuilderComponent
+  ImageRecipe:
+    Value: !Ref ImageRecipe
+    Export: 
+      Name: !Sub ${AWS::StackName}-ImageRecipe

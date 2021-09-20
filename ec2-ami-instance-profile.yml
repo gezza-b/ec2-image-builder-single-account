@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Launch template for an ec2 instance for the AMI creation for the app server
+# Deployment:
+# aws cloudformation create-stack --stack-name ec2-ami-instance-profile --template-body file://ec2-ami-instance-profile.yml --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM
+
+# UPDATE:
+# aws cloudformation update-stack --stack-name ec2-ami-instance-profile --template-body file://ec2-ami-instance-profile.yml --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM 
+
+# DELETE
+# aws cloudformation delete-stack --stack-name ec2-ami-instance-profile
+
+
+Resources:
+  ImgBuilderInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      InstanceProfileName: ImgBuilderInstanceProfile
+      Roles: 
+        - !Ref ImgBuilderInstanceRole
+
+  ImgBuilderInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-iam-role-imgbuilder-instance"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service:
+              - ec2.amazonaws.com
+              - ssm.amazonaws.com
+              - imagebuilder.amazonaws.com
+              - cloudformation.amazonaws.com
+          Action: sts:AssumeRole
+      # the permissions are too generous and this is for a lab type environment only
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+      Policies:
+        - PolicyName: "LoggingPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - s3:*
+                Resource: "*"
+
+Outputs:
+  ImgBuilderInstanceProfile:
+    Value: !Ref ImgBuilderInstanceProfile
+    Export: 
+      Name: !Sub ${AWS::StackName}-ImgBuilderInstanceProfile
+  ImgBuilderInstanceRole:
+    Value: !Ref ImgBuilderInstanceRole
+    Export: 
+      Name: !Sub ${AWS::StackName}-ImgBuilderInstanceRole

@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Launch template for an ec2 instance for the AMI creation for the app server
+# Deployment:
+# aws cloudformation create-stack --stack-name ec2-ami-builder-pipeline --template-body file://ec2-ami-builder-pipeline.yml --parameters file://ec2-ami-builder-pipeline-params-local.json --on-failure DO_NOTHING --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM
+
+# UPDATE:
+# aws cloudformation update-stack --stack-name ec2-ami-builder-pipeline --template-body file://ec2-ami-builder-pipeline.yml --parameters file://ec2-ami-builder-pipeline-params-local.json --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM
+
+# DELETE
+# aws cloudformation delete-stack --stack-name ec2-ami-builder-pipeline
+
+Parameters:
+  CicdInfraStackName: 
+    Description: cicd-infra stack name
+    Type: String 
+  SubnetName:
+    Description: Subnet export name from infra stack
+    Type: String
+  RecipeVersion: 
+    Description: Version of the image recipe 
+    Type: String 
+    Default: 3
+  SharingAccountList: 
+    Type: String
+    Default: "12345678912,01234567891"
+  InfraStackName: 
+    Type: String
+    Default: "infra-ami"
+
+Resources:
+  # Pipeline
+  ImgBuilderPipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    #DependsOn: DistributionConfig
+    Properties: 
+      Description: EC2 Image for Amazon Linux 2
+      DistributionConfigurationArn: !GetAtt DistributionConfig.Arn
+      EnhancedImageMetadataEnabled: true
+      ImageRecipeArn: !Sub '{{resolve:ssm:/cicd/ami/imagerecipe/version/${RecipeVersion}}}'
+      InfrastructureConfigurationArn: !GetAtt InfraConfig.Arn
+      Name: ImgBuilderPipeline
+      Status: DISABLED 
+      Tags: 
+        Name : ImgBuilderPipeline
+
+  # Infra Config
+  InfraConfig:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties: 
+      Description: Infra configuration
+      InstanceProfileName: ImgBuilderInstanceProfile
+      InstanceTypes: 
+        - t4g.medium
+        - r6g.medium
+      Logging: 
+        S3Logs:
+          S3BucketName: !Sub "cicd-logging-${AWS::AccountId}"
+      Name: InfraConfig
+      SecurityGroupIds: 
+        - Fn::ImportValue: !Sub "${CicdInfraStackName}-Ec2AmiSg"
+      SubnetId: 
+        Fn::ImportValue: !Sub "${CicdInfraStackName}-${SubnetName}"
+      TerminateInstanceOnFailure: true
+
+
+  # Image
+  ImgBuilderImage:
+    Type: AWS::ImageBuilder::Image
+    Properties: 
+      EnhancedImageMetadataEnabled: true
+      ImageRecipeArn: !Sub '{{resolve:ssm:/cicd/ami/imagerecipe/version/${RecipeVersion}}}'
+      InfrastructureConfigurationArn: !GetAtt InfraConfig.Arn
+
+  DistributionConfig:
+    Type: 'AWS::ImageBuilder::DistributionConfiguration'
+    Properties:
+      Name: 'DistributionConfig-us-east-1'
+      Description: 'AMI Distribution'
+      Distributions:
+        - AmiDistributionConfiguration:
+            Name: 'AmiCopyConfiguration - {{ imagebuilder:buildDate }}'
+            AmiTags:
+              Region: "us-east-1"
+            LaunchPermissionConfiguration:
+              UserIds:
+                - !Select [0, !Split [",", !Ref SharingAccountList]]
+                - !Select [1, !Split [",", !Ref SharingAccountList]]
+          Region: 
+            Fn::ImportValue: !Sub "${InfraStackName}-Region"
+
+
+Outputs:
+  ImgBuilderPipeline:
+    Value: !Ref ImgBuilderPipeline
+    Export: 
+      Name: !Sub ${AWS::StackName}-ImgBuilderPipeline
+  InfraConfig:
+    Value: !Ref InfraConfig
+    Export: 
+      Name: !Sub ${AWS::StackName}-InfraConfig
+  ImgBuilderImage:
+    Value: !Ref ImgBuilderImage
+    Export: 
+      Name: !Sub ${AWS::StackName}-ImgBuilderImage
+  ImgBuilderImageArn:
+    Value: !GetAtt ImgBuilderImage.Arn
+    Export: 
+      Name: !Sub ${AWS::StackName}-ImgBuilderImageArn
+  DistributionConfig:
+    Value: !Ref DistributionConfig
+    Export: 
+      Name: !Sub ${AWS::StackName}-DistributionConfig
+  RecipeVersion:
+    Value: !Ref RecipeVersion
+    Export: 
+      Name: !Sub ${AWS::StackName}-RecipeVersion
